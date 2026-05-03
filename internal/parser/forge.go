@@ -397,7 +397,9 @@ func collectForgeToolCalls(toolCalls gjson.Result) []ParsedToolCall {
 				ptc.SkillName = tc.Get("arguments.skill").Str
 			}
 		case "task":
-			ptc.SubagentSessionID = tc.Get("arguments.session_id").Str
+			if rawSubID := tc.Get("arguments.session_id").Str; rawSubID != "" {
+				ptc.SubagentSessionID = "forge:" + rawSubID
+			}
 		}
 		parsed = append(parsed, ptc)
 		return true

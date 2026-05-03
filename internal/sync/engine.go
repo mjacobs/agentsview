@@ -4575,6 +4575,9 @@ func (e *Engine) syncSingleForge(
 		); err != nil && !errors.Is(err, db.ErrSessionExcluded) {
 			return fmt.Errorf("write session %s: %w", sess.ID, err)
 		}
+		if err := e.db.LinkSubagentSessions(); err != nil {
+			log.Printf("link subagent sessions: %v", err)
+		}
 		return nil
 	}
 

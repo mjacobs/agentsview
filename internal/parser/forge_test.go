@@ -240,6 +240,68 @@ func TestListForgeSessionMeta(t *testing.T) {
 	}
 }
 
+func TestCollectForgeToolCalls_TaskSubagentIDPrefixed(t *testing.T) {
+	dbPath, seeder, db := newForgeTestDB(t)
+	defer db.Close()
+
+	context := `{
+	  "messages": [
+	    {
+	      "message": {
+	        "text": {
+	          "role": "User",
+	          "content": "Run a subtask.",
+	          "timestamp": "2026-05-02T10:00:00Z"
+	        }
+	      }
+	    },
+	    {
+	      "message": {
+	        "text": {
+	          "role": "Assistant",
+	          "content": "",
+	          "tool_calls": [
+	            {
+	              "name": "task",
+	              "call_id": "call_task_1",
+	              "arguments": {"session_id": "child-conv-001", "prompt": "do the thing"}
+	            }
+	          ],
+	          "timestamp": "2026-05-02T10:00:01Z"
+	        }
+	      }
+	    }
+	  ]
+	}`
+	seeder.AddConversation(
+		"parent-conv", "Parent", 1, context,
+		"2026-05-02 10:00:00", "2026-05-02 10:00:01", "",
+	)
+
+	sess, msgs, err := ParseForgeSession(dbPath, "parent-conv", "m")
+	if err != nil {
+		t.Fatalf("ParseForgeSession: %v", err)
+	}
+	if sess == nil {
+		t.Fatal("expected non-nil session")
+	}
+	if len(msgs) == 0 {
+		t.Fatal("expected messages")
+	}
+	var taskCall *ParsedToolCall
+	for i := range msgs {
+		for j := range msgs[i].ToolCalls {
+			if msgs[i].ToolCalls[j].ToolName == "task" {
+				taskCall = &msgs[i].ToolCalls[j]
+			}
+		}
+	}
+	if taskCall == nil {
+		t.Fatal("expected task tool call")
+	}
+	assertEq(t, "SubagentSessionID", taskCall.SubagentSessionID, "forge:child-conv-001")
+}
+
 func TestFindForgeDBPath(t *testing.T) {
 	dir := t.TempDir()
 	assertEq(t, "not found", FindForgeDBPath(dir), "")
