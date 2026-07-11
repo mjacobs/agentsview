@@ -283,7 +283,12 @@ import (
 // (17: Codex <skill> template filtering.)
 // (16: <turn_aborted> system messages.)
 // (60: Codex recommended-plugins prefix filtering.)
-const dataVersion = 60
+// (61: Antigravity IDE heuristic .db decodes now record
+// TranscriptFidelitySummary instead of an empty (full-treated) fidelity.
+// Re-parsing existing IDE rows converges their transcript_fidelity so the
+// "Summary mode" badge surfaces on sessions that lack a covering agy-reader
+// sidecar; sidecar-covered rows re-parse to full unchanged.)
+const dataVersion = 61
 
 const tokenCoverageRepairStatsKey = "token_coverage_repair_v1"
 

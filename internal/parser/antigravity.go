@@ -125,10 +125,14 @@ func (p *antigravityProvider) parseSession(
 	// counted twice -- mirroring the CLI path's merge behavior.
 	usageEvents := dbResult.usageEvents
 	hasGenMetadata := dbResult.hasGenMetadata
-	// TranscriptFidelity is left empty (treated as full) for the heuristic
-	// decode, matching prior IDE behavior; a covering sidecar sets it to
-	// TranscriptFidelityFull explicitly below.
-	transcriptFidelity := ""
+	// The heuristic .db decode recovers only loose strings (prompts and
+	// tool-call names), so it is a summary, not the full transcript --
+	// mirroring the CLI parser's default (antigravity_cli.go). A covering
+	// agy-reader sidecar upgrades this to TranscriptFidelityFull below. The
+	// explicit summary label (rather than leaving it empty, which the UI
+	// treats as full) surfaces the "Summary mode" badge so IDE sessions
+	// signal that running agy-reader would improve fidelity.
+	transcriptFidelity := TranscriptFidelitySummary
 
 	// Prefer the agy-reader trajectory sidecar: it is the daemon's own
 	// decode, with structured tool calls/results and thinking, where the

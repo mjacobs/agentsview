@@ -725,6 +725,99 @@ func TestAntigravityIDEDiscoverAndParse(t *testing.T) {
 	assert.Equal(t, int64(1779326586), sess.EndedAt.Unix())
 }
 
+// TestAntigravityIDEHeuristicDecodeFidelity pins the fidelity signal an IDE
+// session carries: the heuristic .db decode is a summary (prompts and
+// tool-call names only), a covering agy-reader sidecar upgrades it to full,
+// and a sidecar that lags the DB's step count does not (it would underreport a
+// live session, so the heuristic summary is kept). The two-step test DB gives a
+// rawStepCount of 2, which the sidecars are sized against.
+func TestAntigravityIDEHeuristicDecodeFidelity(t *testing.T) {
+	// A sidecar with two displayable steps covers the two-row DB.
+	coveringSidecar := `{
+		"trajectoryId": "traj-id",
+		"steps": [
+			{
+				"type": "CORTEX_STEP_TYPE_USER_INPUT",
+				"metadata": {"createdAt": "2026-05-20T22:40:00Z"},
+				"userInput": {"userResponse": "sidecar user prompt"}
+			},
+			{
+				"type": "CORTEX_STEP_TYPE_PLANNER_RESPONSE",
+				"metadata": {"createdAt": "2026-05-20T22:41:00Z"},
+				"plannerResponse": {"response": "sidecar assistant response"}
+			}
+		]
+	}`
+	// A one-step sidecar is displayable but does not cover the two-row DB.
+	laggingSidecar := `{
+		"trajectoryId": "traj-id",
+		"steps": [
+			{
+				"type": "CORTEX_STEP_TYPE_USER_INPUT",
+				"metadata": {"createdAt": "2026-05-20T22:40:00Z"},
+				"userInput": {"userResponse": "sidecar user prompt"}
+			}
+		]
+	}`
+
+	tests := []struct {
+		name         string
+		sidecar      string // empty means no sidecar file is written
+		wantFidelity string
+		wantContent  string // a substring the winning transcript must carry
+	}{
+		{
+			name:         "heuristic decode is summary",
+			sidecar:      "",
+			wantFidelity: TranscriptFidelitySummary,
+			wantContent:  "user prompt text",
+		},
+		{
+			name:         "covering sidecar upgrades to full",
+			sidecar:      coveringSidecar,
+			wantFidelity: TranscriptFidelityFull,
+			wantContent:  "sidecar user prompt",
+		},
+		{
+			name:         "lagging sidecar stays summary",
+			sidecar:      laggingSidecar,
+			wantFidelity: TranscriptFidelitySummary,
+			wantContent:  "user prompt text",
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			root := t.TempDir()
+			id := "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee"
+			mustMkdir(t, filepath.Join(root, "conversations"))
+
+			dbPath := filepath.Join(root, "conversations", id+".db")
+			createAntigravityTestDB(t, dbPath)
+			if tc.sidecar != "" {
+				mustWrite(t,
+					filepath.Join(root, "conversations", id+".trajectory.json"),
+					[]byte(tc.sidecar))
+			}
+
+			sess, msgs, _, err := parseAntigravityTestSession(t,
+				dbPath, "", "test-machine")
+			require.NoError(t, err, "parse")
+			assert.Equal(t, tc.wantFidelity, sess.TranscriptFidelity)
+
+			var sawContent bool
+			for _, m := range msgs {
+				if strings.Contains(m.Content, tc.wantContent) {
+					sawContent = true
+				}
+			}
+			assert.True(t, sawContent,
+				"expected a message containing %q to prove the winning transcript",
+				tc.wantContent)
+		})
+	}
+}
+
 func TestDecodeAntigravityStepFiltersInternalStrings(t *testing.T) {
 	ts := encodePB([]pbField{
 		{num: 1, wire: pbWireVarint, varint: 1779000000},
@@ -3677,8 +3770,9 @@ func TestAntigravityIDEHeuristicFallbackWhenSidecarMissing(t *testing.T) {
 	require.Len(t, msgs, 2)
 	assert.Equal(t, "user prompt text goes here", msgs[0].Content)
 	assert.Contains(t, msgs[1].Content, "assistant reply content body")
-	// Fidelity unchanged from prior IDE behavior: empty (treated as full).
-	assert.Equal(t, "", sess.TranscriptFidelity)
+	// The heuristic .db decode is a summary; with no covering sidecar the
+	// session is labeled summary so the "Summary mode" badge surfaces.
+	assert.Equal(t, TranscriptFidelitySummary, sess.TranscriptFidelity)
 }
 
 func TestAntigravityIDEKeepsDBDecodeWhenSidecarLags(t *testing.T) {
@@ -3698,7 +3792,8 @@ func TestAntigravityIDEKeepsDBDecodeWhenSidecarLags(t *testing.T) {
 	require.Len(t, msgs, 2)
 	assert.Equal(t, "user prompt text goes here", msgs[0].Content)
 	assert.Contains(t, msgs[1].Content, "assistant reply content body")
-	assert.Equal(t, "", sess.TranscriptFidelity)
+	// Lagging sidecar loses; the heuristic decode wins and is a summary.
+	assert.Equal(t, TranscriptFidelitySummary, sess.TranscriptFidelity)
 }
 
 func TestAntigravityIDEMalformedSidecarFallsBack(t *testing.T) {
@@ -3718,7 +3813,8 @@ func TestAntigravityIDEMalformedSidecarFallsBack(t *testing.T) {
 	require.Len(t, msgs, 2)
 	assert.Equal(t, "user prompt text goes here", msgs[0].Content)
 	assert.Contains(t, msgs[1].Content, "assistant reply content body")
-	assert.Equal(t, "", sess.TranscriptFidelity)
+	// Malformed sidecar is ignored; the heuristic decode wins as a summary.
+	assert.Equal(t, TranscriptFidelitySummary, sess.TranscriptFidelity)
 }
 
 // TestAntigravityIDESidecarWinsKeepsGenMetadataUsage verifies the
@@ -3844,9 +3940,11 @@ func TestAntigravityIDENonCoveringSidecarUsageRejected(t *testing.T) {
 	require.NoError(t, err)
 
 	// Heuristic decode wins; sidecar usage rejected like its transcript.
+	// The heuristic decode is a summary, so no covering sidecar means the
+	// session is labeled summary (not full).
 	require.Len(t, msgs, 2)
 	assert.Equal(t, "user prompt text goes here", msgs[0].Content)
-	assert.Equal(t, "", sess.TranscriptFidelity)
+	assert.Equal(t, TranscriptFidelitySummary, sess.TranscriptFidelity)
 	assert.Empty(t, usageEvents,
 		"non-covering sidecar usage must be rejected like its transcript")
 }
