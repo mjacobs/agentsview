@@ -657,10 +657,10 @@
         style:background={agentColor(session.agent)}
         style:color={agentForeground(session.agent)}
       >{agentLabel(session.agent)}</span>
-      {#if session.agent === "antigravity-cli" && session.transcript_fidelity === "summary"}
+      {#if (session.agent === "antigravity" || session.agent === "antigravity-cli") && session.transcript_fidelity === "summary"}
         <a
           class="summary-badge"
-          href="https://github.com/kenn-io/agentsview#antigravity-cli-high-resolution-transcripts"
+          href="https://github.com/kenn-io/agentsview#antigravity-high-resolution-transcripts"
           target="_blank"
           rel="noopener noreferrer"
           title={m.session_breadcrumb_summary_mode_tooltip()}

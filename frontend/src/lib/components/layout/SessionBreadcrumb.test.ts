@@ -582,6 +582,38 @@ describe("SessionBreadcrumb", () => {
       expect(document.querySelector(".summary-badge")).toBeNull();
       unmount(component);
     });
+
+    it("shows the badge for summary-mode antigravity IDE", async () => {
+      const component = mount(SessionBreadcrumb, {
+        target: document.body,
+        props: {
+          session: makeSession("antigravity", {
+            transcript_fidelity: "summary",
+          }),
+          onBack: () => {},
+        },
+      });
+      await tick();
+      const badge = document.querySelector(".summary-badge");
+      expect(badge).toBeTruthy();
+      expect(badge?.textContent?.trim().toLowerCase()).toContain("summary mode");
+      unmount(component);
+    });
+
+    it("hides the badge for full antigravity IDE", async () => {
+      const component = mount(SessionBreadcrumb, {
+        target: document.body,
+        props: {
+          session: makeSession("antigravity", {
+            transcript_fidelity: "full",
+          }),
+          onBack: () => {},
+        },
+      });
+      await tick();
+      expect(document.querySelector(".summary-badge")).toBeNull();
+      unmount(component);
+    });
   });
 
   describe("malformed-lines badge", () => {
